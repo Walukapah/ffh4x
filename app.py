@@ -161,9 +161,9 @@ def decode_protobuf(binary):
         app.logger.error(f"Unexpected error during protobuf decoding: {e}")
         return None
 
-def fetch_player_info(uid):
+def fetch_player_info(uid, server_name):
     try:
-        url = f"https://nr-codex-info.vercel.app/get?uid={uid}"
+        url = f"https://free-fire-info-site-phi.vercel.app/player-info?region={server_name}&uid={uid}"
         response = requests.get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()

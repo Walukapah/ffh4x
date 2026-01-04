@@ -161,110 +161,74 @@ def decode_protobuf(binary):
         app.logger.error(f"Unexpected error during protobuf decoding: {e}")
         return None
 
-def fetch_player_info(uid, server_name):
-    try:
-        url = f"https://free-fire-info-site-phi.vercel.app/player-info?region={server_name}&uid={uid}"
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            account_info = data.get("AccountInfo", {})
-            return {
-                "Level": account_info.get("AccountLevel", "NA"),
-                "Region": account_info.get("AccountRegion", "NA"),
-                "ReleaseVersion": account_info.get("ReleaseVersion", "NA")
-            }
-        else:
-            app.logger.error(f"Player info API failed with status code: {response.status_code}")
-            return {"Level": "NA", "Region": "NA", "ReleaseVersion": "NA"}
-    except Exception as e:
-        app.logger.error(f"Error fetching player info from API: {e}")
-        return {"Level": "NA", "Region": "NA", "ReleaseVersion": "NA"}
-
 @app.route('/like', methods=['GET'])
 def handle_requests():
     uid = request.args.get("uid")
     server_name = request.args.get("server_name", "").upper()
+
     if not uid or not server_name:
         return jsonify({"error": "UID and server_name are required"}), 400
 
     try:
         def process_request():
-            # Fetch player info from the new API
-            player_info = fetch_player_info(uid)
-            region = player_info["Region"]
-            level = player_info["Level"]
-            release_version = player_info["ReleaseVersion"]
-
-            # Validate server_name against region from API
-            if region != "NA" and server_name != region:
-                app.logger.warning(f"Server name {server_name} does not match API region {region}. Using API region.")
-                server_name_used = region
-            else:
-                server_name_used = server_name
-
-            tokens = load_tokens(server_name_used)
+            # Load tokens
+            tokens = load_tokens(server_name)
             if tokens is None:
-                raise Exception("Failed to load tokens.")
+                raise Exception("Failed to load tokens")
+
             token = tokens[0]['token']
+
             encrypted_uid = enc(uid)
             if encrypted_uid is None:
-                raise Exception("Encryption of UID failed.")
+                raise Exception("UID encryption failed")
 
-            before = make_request(encrypted_uid, server_name_used, token)
+            # BEFORE likes
+            before = make_request(encrypted_uid, server_name, token)
             if before is None:
-                raise Exception("Failed to retrieve initial player info.")
-            try:
-                jsone = MessageToJson(before)
-            except Exception as e:
-                raise Exception(f"Error converting 'before' protobuf to JSON: {e}")
-            data_before = json.loads(jsone)
-            before_like = data_before.get('AccountInfo', {}).get('Likes', 0)
-            try:
-                before_like = int(before_like)
-            except Exception:
-                before_like = 0
-            app.logger.info(f"Likes before command: {before_like}")
+                raise Exception("Failed to fetch initial profile")
 
-            if server_name_used == "IND":
+            data_before = json.loads(MessageToJson(before))
+            before_like = int(data_before.get('AccountInfo', {}).get('Likes', 0))
+
+            # Like URL
+            if server_name == "IND":
                 url = "https://client.ind.freefiremobile.com/LikeProfile"
-            elif server_name_used in {"BR", "US", "SAC", "NA"}:
+            elif server_name in {"BR", "US", "SAC", "NA"}:
                 url = "https://client.us.freefiremobile.com/LikeProfile"
             else:
                 url = "https://clientbp.ggblueshark.com/LikeProfile"
 
-            asyncio.run(send_multiple_requests(uid, server_name_used, url))
+            # Send likes
+            asyncio.run(send_multiple_requests(uid, server_name, url))
 
-            after = make_request(encrypted_uid, server_name_used, token)
+            # AFTER likes
+            after = make_request(encrypted_uid, server_name, token)
             if after is None:
-                raise Exception("Failed to retrieve player info after like requests.")
-            try:
-                jsone_after = MessageToJson(after)
-            except Exception as e:
-                raise Exception(f"Error converting 'after' protobuf to JSON: {e}")
-            data_after = json.loads(jsone_after)
+                raise Exception("Failed to fetch profile after likes")
+
+            data_after = json.loads(MessageToJson(after))
+
             after_like = int(data_after.get('AccountInfo', {}).get('Likes', 0))
             player_uid = int(data_after.get('AccountInfo', {}).get('UID', 0))
             player_name = str(data_after.get('AccountInfo', {}).get('PlayerNickname', ''))
+
             like_given = after_like - before_like
-            status = 1 if like_given != 0 else 2
-            result = {
+
+            return {
                 "LikesGivenByAPI": like_given,
                 "LikesafterCommand": after_like,
                 "LikesbeforeCommand": before_like,
                 "PlayerNickname": player_name,
-                "Region": region,
-                "Level": level,
+                "Region": server_name,
                 "UID": player_uid,
-                "ReleaseVersion": release_version,
-                "status": status
+                "status": 1 if like_given > 0 else 2
             }
-            return result
 
-        result = process_request()
-        return jsonify(result)
+        return jsonify(process_request())
+
     except Exception as e:
-        app.logger.error(f"Error processing request: {e}")
+        app.logger.error(f"Error: {e}")
         return jsonify({"error": str(e)}), 500
-
+        
 if __name__ == '__main__':
     app.run(debug=True, use_reloader=False)

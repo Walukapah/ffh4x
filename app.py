@@ -116,8 +116,8 @@ def create_protobuf_message(user_id, region):
 
 def create_protobuf_for_profile_check(uid):
     message = uid_generator_pb2.uid_generator()
-    message.krishna_ = int(uid)
-    message.teamXdarks = 1
+    message.uid = int(uid)
+    message.type = 1
     return message.SerializeToString()
 
 def enc_profile_check_payload(uid):
